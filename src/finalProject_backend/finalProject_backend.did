@@ -1,3 +1,49 @@
-service : {
-    "greet": (text) -> (text) query;
+type User = record {
+    name: text;
+    lastname: text;
+    email:text;
+    password:text;
+    registrationYear:nat16;
+};
+type CreateUserArgs = record {
+    name: text;
+    lastname: text;
+    email:text;
+    password:text;
+    registrationYear:nat16;
+};
+type Advert = record {
+    title:text;
+    description:text;
+    price:nat32;
+    category:text;
+};
+type ProgrammingLang=variant{
+    Motoko;
+    Solidity;
+    Vyper;
+    Rust;
+    JavaScript;
+    TypeScript;
+    Go;
+    Python;
+    Java;
+    Csharp;
+    CplusPlus;
+};
+type userError=variant{
+    incorrectPassword;
+    incorrectEmail;
+}
+service:{
+    "create_user": (CreateUserArgs) -> ();
+    "get_user":(String)->(Option<User>) query;
+    "get_all_users":()->(Vec<User>) query;
+    "get_users_sorted_by_name":()->(Vec<User>) query;
+    "list_users_by_email":(String)->(Vec<User>) query;
+    "create_advert":(Advert)->();
+    "publish_advert":(String)->();
+    "list_adverts_by_category":(String)->(Vec<Advert>);
+    "check_credentials":(String,String)->(Option<userError>);
+     "publish_advert1":(Advert)->(advertError);
 }
