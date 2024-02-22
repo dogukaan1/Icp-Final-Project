@@ -3,8 +3,9 @@ use ic_stable_structures::memory_manager::{MemoryId, MemoryManager, VirtualMemor
 use ic_stable_structures::{BoundedStorable, DefaultMemoryImpl, StableBTreeMap, Storable};
 use std::{borrow::Cow, cell::RefCell};
 use ic_cdk::storage;
-
+use std::collections::BTreeMap;
 use ic_cdk::export::Principal;
+
 
 #[derive(Clone,CandidType, Deserialize)]
 struct User{
@@ -12,7 +13,7 @@ struct User{
     lastname:String,
     email:String,
     password:String,
-    registrationYear:u16,
+    registrationYear:u32,
 
 }
 
@@ -22,14 +23,14 @@ struct CreateUserArgs {
     lastname: String,
     email: String,
     password:String,
-    registrationYear: u16,
+    registrationYear: u32,
 }
 
-#[derive(CandidType, Deserialize)]
+#[derive(CandidType, Deserialize,Clone)]
 struct Advert{
     title:String,
     description:String,
-    price:u16,
+    price:String,
     category:String,
 
 }
@@ -64,16 +65,15 @@ enum ProgrammingLang{
 
 #[derive(CandidType, Deserialize)]
 enum userError {
-    incorrectPassword,
-    incorrectEmail, 
+    unfilled(String),
+    incorrectEmail(String),
+    incorrectPassword(String),
 }
-#[derive(CandidType, Deserialize)]
-enum advertError {
+#[derive(CandidType,Deserialize)]
+enum userResult {
+    Success(String),
+    Error(userError),
     
-    notitle,
-    nodescription,
-    noprice, 
-    nocategory,
 }
 
 
@@ -87,146 +87,167 @@ impl Storable for User {
         Decode!(bytes.as_ref(), Self).unwrap()
     }
 }
+impl Storable for Advert {
+    fn to_bytes(&self) -> Cow<[u8]> {
+        Cow::Owned(Encode!(self).unwrap())
+    }
 
-type Memory = VirtualMemory<DefaultMemoryImpl>;
-const MAX_VALUE_SIZE: u32 = 10000;
-
-impl BoundedStorable for Advert {
-    const MAX_SIZE: u32 = MAX_VALUE_SIZE; 
-    const IS_FIXED_SIZE: bool = false;
+    fn from_bytes(bytes: Cow<[u8]>) -> Self {
+        Decode!(bytes.as_ref(), Self).unwrap()
+    }
 }
+type Memory = VirtualMemory<DefaultMemoryImpl>;
+const MAX_VALUE_SIZE: u32 = 100;
 impl BoundedStorable for User {
     const MAX_SIZE: u32 = MAX_VALUE_SIZE; 
     const IS_FIXED_SIZE: bool = false;
 }
 
+impl BoundedStorable for Advert {
+    const MAX_SIZE: u32 = MAX_VALUE_SIZE; 
+    const IS_FIXED_SIZE: bool = false;
+}
 thread_local! {
     static MEMORY_MANAGER: RefCell<MemoryManager<DefaultMemoryImpl>> =
     RefCell::new(MemoryManager::init(DefaultMemoryImpl::default()));
 
-    static EVENTS_MAP: RefCell<StableBTreeMap<u64, User, Memory>> = RefCell::new(
+    static USER_MAP: RefCell<StableBTreeMap<u64, User, Memory>> = RefCell::new(
         StableBTreeMap::init(
-            MEMORY_MANAGER.with(|m| m.borrow().get(MemoryId::new(1))), 
+            MEMORY_MANAGER.with(|p| p.borrow().get(MemoryId::new(2))), 
+        )
+    );
+    static Advert_Map: RefCell<StableBTreeMap<u64, Advert, Memory>> = RefCell::new(
+        StableBTreeMap::init(
+            MEMORY_MANAGER.with(|p| p.borrow().get(MemoryId::new(2))), 
         )
     );
 }
 
 #[ic_cdk::update]
-fn create_user(args: CreateUserArgs) {
-    let new_user = User {
-        name: args.name,
-        lastname: args.lastname,
-        email: args.email,
-        password:args.password,
-        registrationYear: args.registrationYear,
-    };
-    let key = (ic_cdk::caller());
-    storage::stable_save((key, new_user)).unwrap();
-}
-
-#[ic_cdk_macros::query]
-fn get_user(email: String) -> Option<User> {
-    let key = (ic_cdk::caller(), email);
-    match ic_cdk::storage::stable_restore::<(ic_cdk::Principal, String), User>(&key) {
-        Ok(Some(user)) => Some(user),
-        _ => None,
+fn create_user(name:String,lastname:String,email:String,password: String,registrationYear:u32,)->Result<userResult, userError> {
+    if name.is_empty() || lastname.is_empty() || email.is_empty()||password.is_empty(){
+        return Err(userError::unfilled("boş alanlar mevcut".to_string()));
     }
-}
-#[ic_cdk_macros::query]
-fn get_all_users() -> Vec<User> {
-    EVENTS_MAP.with(|events_map_ref| {
-        let events_map = &*events_map_ref.borrow();
-        events_map
-            .values()
-            .map(|event| event.clone())
-            .collect()
-    })
-}
-#[ic_cdk_macros::query]
-fn get_users_sorted_by_name() -> Vec<User> {
-    let mut users = get_all_users();
-    users.sort_by(|a, b| a.name.cmp(&b.name));
-    users
+    
+   USER_MAP.with(|p|{
+    let mut user_map = p.borrow_mut();
+    let new_user = User{
+        name:name,
+        lastname:lastname,
+        password:password,
+        email:email,
+        registrationYear:registrationYear, 
+    };
+    let new_user_id=user_map.len();
+user_map.insert(new_user_id,new_user);
+   });
+   Ok(userResult::Success("üyeliğiniz oluşturulmuştur".to_string()))
 }
 
 #[ic_cdk_macros::query]
-fn list_users_by_email(email: String) -> Vec<User> {
-    let mut users = vec![];
-    EVENTS_MAP.with(|events_map_ref| {
-        let events_map = events_map_ref.borrow();
-        for (_, user) in events_map.iter() {
+fn sort_users()->Vec<User> {
+    let mut users = Vec::new();
+    USER_MAP.with(|p|{
+        let user_map=p.borrow();
+        let mut iter = user_map.iter();
+    while let Some((_, user)) = iter.next() {
+    users.push(user.clone());
+}
+});
+users    
+} 
+#[ic_cdk::update]
+fn create_advert(title: String, description: String, price: String, category: String)->Result<userResult, userError> {
+    if title.is_empty() || description.is_empty() || price.is_empty()||category.is_empty(){
+        return Err(userError::unfilled("boş alanlar mevcut".to_string()));
+    }
+    
+   Advert_Map.with(|p|{
+    let mut advert_map = p.borrow_mut();
+    let new_advert = Advert{
+        title:title,
+        description:description,
+        price:price,
+        category:category,
+        
+    };
+   });
+   Ok(userResult::Success("ilanınız oluşturulmuştur".to_string()))
+}
+#[ic_cdk_macros::query]
+fn sort_adverts()->Vec<Advert> {
+    let mut adverts = Vec::new();
+    Advert_Map.with(|p|{
+        let advert_map=p.borrow();
+       
+    for (_, advert) in advert_map.iter() {
+    adverts.push(advert.clone());
+}
+});
+adverts    
+} 
+
+#[ic_cdk_macros::query]
+fn get_user_by_email(email: String) -> Option<User> {
+    USER_MAP.with(|user_map_ref| {
+        let user_map = user_map_ref.borrow();
+        for (_, user) in user_map.iter() {
             if user.email == email {
-                users.push(user.clone());
+                return Some(user.clone());
             }
         }
-    });
-    users
-}
-#[ic_cdk::update]
-fn create_advert(advert: Advert) {
-    let key = (ic_cdk::caller(), &advert.title);
-    storage::stable_save((key, advert)).unwrap_or_else(|_| ic_cdk::trap("Error saving advert"));
-}
-#[ic_cdk::update]
-fn publish_advert(title: String) {
-    let key = (ic_cdk::caller(), &title);
-    match storage::stable_get::<(ic_cdk::Principal, String), Advert>(key) {
-        Ok(Some(advert)) => {
-          
-            println!("Published advert: {:?}", advert);
-        },
-        _ => ic_cdk::trap("Advert not found"), 
-    }
+        None
+    })
 }
 
-#[ic_cdk_macros::query]
-fn list_adverts_by_category(category: String) -> Vec<Advert> {
-    let mut adverts = vec![];
-    EVENTS_MAP.with(|events_map_ref| {
-        let events_map = events_map_ref.borrow();
-        for (_, advert) in events_map.iter() {
-            if advert.category == category {
-                adverts.push(advert.clone());
+#[ic_cdk::update]
+fn delete_user_by_email(email: String) -> Result<userResult, userError> {
+    USER_MAP.with(|user_map| {
+        let mut to_remove = None;
+        for (id, user) in user_map.borrow().iter() {
+            if user.email == email {
+                to_remove = Some(id.clone());
+                break;
             }
+        }
+        if let Some(id) = to_remove {
+            user_map.borrow_mut().remove(&id);
+            Ok(userResult::Success("Kullanıcı silindi.".to_string()))
+        } else {
+            Err(userError::unfilled("Kullanıcı bulunamadı.".to_string()))
+        }
+    })
+}
+
+
+#[ic_cdk_macros::query]
+fn list_adverts_by_category() -> Vec<String> {
+    let mut adverts = vec![];
+    Advert_Map.with(|advert_map_ref| {
+        let advert_map = advert_map_ref.borrow();
+        for (_, advert) in advert_map.iter() {
+            
+            adverts.push(advert.category.clone());            
         }
     });
     adverts
-}
-
-#[ic_cdk_macros::query]
-fn check_credentials(username: String, password: String) -> Option<userError> {
-    let key = (ic_cdk::caller(), &username);
-    match storage::stable_get::<(ic_cdk::Principal, String), User>(key) {
-        Ok(Some(user)) => {
-            if user.password == password {
-                None 
-            } else {
-                Some(userError::incorrectPassword) 
-            }
-        },
-        _ => Some(userError::incorrectEmail), 
-    }
-}
-
+} 
 #[ic_cdk::update]
-fn publish_advert1(advert: Advert) -> Result<(), advertError> {
-    if advert.title.is_empty() {
-        return Err(advertError::notitle);
-    }
-    if advert.description.is_empty() {
-        return Err(advertError::nodescription);
-    }
-    if advert.price == 0 {
-        return Err(advertError::noprice);
-    }
-    if advert.category.is_empty() {
-        return Err(advertError::nocategory);
-    }
-
-   
-    let key = (ic_cdk::caller(), &advert.title);
-    storage::stable_save((key, advert)).unwrap_or_else(|_| ic_cdk::trap("Error saving advert"));
-
-    Ok(())
+fn login_user(email: String, password: String) -> Result<userResult, userError> {
+    USER_MAP.with(|user_map_ref| {
+        let user_map = user_map_ref.borrow();
+        for (_, user) in user_map.iter() {
+            if user.email == email {
+                if user.password == password {
+                    return Ok(userResult::Success("Giriş başarılı.".to_string()));
+                } else {
+                    return Err(userError::incorrectPassword("Şifre yanlış.".to_string()));
+                }
+            }
+        }
+        Err(userError::incorrectEmail("E-posta adresi bulunamadı.".to_string()))
+    })
 }
+
+
 

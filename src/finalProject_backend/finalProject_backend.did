@@ -15,7 +15,7 @@ type CreateUserArgs = record {
 type Advert = record {
     title:text;
     description:text;
-    price:nat32;
+    price:text;
     category:text;
 };
 type ProgrammingLang=variant{
@@ -31,19 +31,35 @@ type ProgrammingLang=variant{
     Csharp;
     CplusPlus;
 };
+type userResult=variant{
+    Success:text;
+    Error:userError;
+};
 type userError=variant{
-    incorrectPassword;
-    incorrectEmail;
-}
+   unfilled:text;
+};
+type Result=variant{
+    Ok:userResult;
+    Err: userError;
+};
+
 service:{
-    "create_user": (CreateUserArgs) -> ();
-    "get_user":(String)->(Option<User>) query;
-    "get_all_users":()->(Vec<User>) query;
+    "create_user":(text,text,text,text,nat32)-> (Result);
+    "sort_users":()->(vec User) query;
+    "create_advert":(text,text,text,text)->(Result);
+    "sort_adverts":()->(vec Advert) query;
+    "get_user_by_email":(text)->(opt User)query;
+    "clear_users":()->();
+    "list_adverts_by_category":()->(vec text) query;
+    "delete_user_by_email":(text)->(Result);
+    "login_user":(text,text)->(Result);
+
+    /*"get_all_users":()->(Vec<User>) query;
     "get_users_sorted_by_name":()->(Vec<User>) query;
     "list_users_by_email":(String)->(Vec<User>) query;
     "create_advert":(Advert)->();
     "publish_advert":(String)->();
     "list_adverts_by_category":(String)->(Vec<Advert>);
     "check_credentials":(String,String)->(Option<userError>);
-     "publish_advert1":(Advert)->(advertError);
-}
+     "publish_advert1":(Advert)->(advertError);*/
+};
